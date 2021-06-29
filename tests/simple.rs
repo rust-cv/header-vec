@@ -21,4 +21,9 @@ fn test_head_array() {
 
     assert_eq!(TestA { a: 4, b: !0 }, *head_array);
     assert_eq!(quote, head_array[..].iter().copied().collect::<String>());
+    head_array.retain(|&c| !"aeiou".contains(c));
+    assert_eq!(
+        "th qck brwn fx jmps vr th lzy dg",
+        head_array[..].iter().copied().collect::<String>()
+    );
 }

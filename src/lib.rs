@@ -7,6 +7,7 @@ use core::{
     marker::PhantomData,
     mem,
     ops::{Deref, DerefMut, Index, IndexMut},
+    ptr,
     slice::SliceIndex,
 };
 
@@ -67,12 +68,12 @@ impl<H, T> HeaderVec<H, T> {
 
     #[inline(always)]
     pub fn as_slice(&self) -> &[T] {
-        unsafe { core::slice::from_raw_parts(self.ptr.add(Self::offset()), self.len()) }
+        unsafe { core::slice::from_raw_parts(self.start_ptr(), self.len()) }
     }
 
     #[inline(always)]
     pub fn as_mut_slice(&mut self) -> &mut [T] {
-        unsafe { core::slice::from_raw_parts_mut(self.ptr.add(Self::offset()), self.len()) }
+        unsafe { core::slice::from_raw_parts_mut(self.start_ptr_mut(), self.len()) }
     }
 
     /// Adds an item to the end of the list.
@@ -112,9 +113,43 @@ impl<H, T> HeaderVec<H, T> {
             false
         };
         unsafe {
-            core::ptr::write(self.ptr.add(Self::offset()).add(old_len), item);
+            core::ptr::write(self.start_ptr_mut().add(old_len), item);
         }
         different
+    }
+
+    /// Retains only the elements specified by the predicate.
+    ///
+    /// In other words, remove all elements `e` such that `f(&e)` returns `false`.
+    /// This method operates in place, visiting each element exactly once in the original order,
+    /// and preserves the order of the retained elements.
+    pub fn retain(&mut self, mut f: impl FnMut(&T) -> bool) {
+        // This keeps track of the length (and next position) of the contiguous retained elements
+        // at the beginning of the vector.
+        let mut head = 0;
+        let original_len = self.len();
+        // Get the offset of the beginning of the slice.
+        let start_ptr = self.start_ptr_mut();
+        // Go through each index.
+        for index in 0..original_len {
+            unsafe {
+                // Call the retain function on the derefed pointer to each index.
+                if f(&*start_ptr.add(index)) {
+                    // If the head and index are at different indices, the memory needs to be copied to be retained.
+                    if head != index {
+                        ptr::copy_nonoverlapping(start_ptr.add(index), start_ptr.add(head), 1);
+                    }
+                    // In either case, the head needs to move forwards since we now have a new item at
+                    // the end of the contiguous retained items.
+                    head += 1;
+                } else {
+                    // In this case, we just need to drop the item at the address.
+                    ptr::drop_in_place(start_ptr.add(index));
+                }
+            }
+        }
+        // The head now represents the new length of the vector.
+        self.header_mut().len = head;
     }
 
     /// Gives the offset in units of T (as if the pointer started at an array of T) that the slice actually starts at.
@@ -149,6 +184,18 @@ impl<H, T> HeaderVec<H, T> {
         .expect("unable to produce memory layout with Hrc key type (is it a zero sized type? they are not permitted)")
     }
 
+    /// Gets the pointer to the start of the slice.
+    #[inline(always)]
+    fn start_ptr(&self) -> *const T {
+        unsafe { self.ptr.add(Self::offset()) }
+    }
+
+    /// Gets the pointer to the start of the slice.
+    #[inline(always)]
+    fn start_ptr_mut(&mut self) -> *mut T {
+        unsafe { self.ptr.add(Self::offset()) }
+    }
+
     #[inline(always)]
     fn header(&self) -> &HeaderVecHeader<H> {
         // The beginning of the memory is always the header.
@@ -159,6 +206,17 @@ impl<H, T> HeaderVec<H, T> {
     fn header_mut(&mut self) -> &mut HeaderVecHeader<H> {
         // The beginning of the memory is always the header.
         unsafe { &mut *(self.ptr as *mut HeaderVecHeader<H>) }
+    }
+}
+
+impl<H, T> Drop for HeaderVec<H, T> {
+    fn drop(&mut self) {
+        unsafe {
+            ptr::drop_in_place(&mut self.header_mut().head);
+            for ix in 0..self.len() {
+                ptr::drop_in_place(self.start_ptr_mut().add(ix));
+            }
+        }
     }
 }
 
