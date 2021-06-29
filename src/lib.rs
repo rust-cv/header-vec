@@ -82,6 +82,12 @@ impl<H, T> HeaderVec<H, T> {
         unsafe { core::slice::from_raw_parts_mut(self.start_ptr_mut(), self.len()) }
     }
 
+    /// This is useful to check if two nodes are the same. Use it with [`HeaderVec::is`].
+    #[inline(always)]
+    pub fn ptr(&self) -> *const () {
+        self.ptr as *const ()
+    }
+
     /// This is used to check if this is the `HeaderVec` that corresponds to the given pointer.
     /// This is useful for updating weak references after [`HeaderVec::push`] returns the pointer.
     #[inline(always)]
