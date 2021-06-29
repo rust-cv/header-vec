@@ -123,6 +123,17 @@ impl<H, T> HeaderVec<H, T> {
         }
     }
 
+    /// If a `HeaderVec` is updated through a weak reference and reallocates, you must use this method
+    /// to update the internal pointer to the `HeaderVec` (along with any other weak references).
+    ///
+    /// # Safety
+    ///
+    /// See the safety section in [`HeaderVec::weak`] for an explanation of why this is necessary.
+    #[inline(always)]
+    pub unsafe fn update(&mut self, weak: HeaderVecWeak<H, T>) {
+        self.ptr = weak.ptr;
+    }
+
     /// Adds an item to the end of the list.
     ///
     /// Returns `true` if the memory was moved to a new location.
