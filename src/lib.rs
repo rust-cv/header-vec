@@ -4,6 +4,7 @@ extern crate alloc;
 
 use core::{
     cmp,
+    fmt::Debug,
     marker::PhantomData,
     mem,
     ops::{Deref, DerefMut, Index, IndexMut},
@@ -24,8 +25,13 @@ pub struct HeaderVec<H, T> {
 
 impl<H, T> HeaderVec<H, T> {
     pub fn new(head: H) -> Self {
+        Self::with_capacity(1, head)
+    }
+
+    pub fn with_capacity(capacity: usize, head: H) -> Self {
+        assert!(capacity > 0, "HeaderVec capacity cannot be 0");
         // Allocate the initial memory, which is unititialized.
-        let layout = Self::layout(1);
+        let layout = Self::layout(capacity);
         let ptr = unsafe { alloc::alloc::alloc(layout) } as *mut T;
 
         // Handle out-of-memory.
@@ -45,7 +51,7 @@ impl<H, T> HeaderVec<H, T> {
         // and we don't want to trigger a call to drop() on uninitialized memory.
         unsafe { core::ptr::write(&mut header.head, head) };
         // These primitive types don't have drop implementations.
-        header.capacity = 1;
+        header.capacity = capacity;
         header.len = 0;
 
         this
@@ -255,5 +261,42 @@ where
     #[inline(always)]
     fn index_mut(&mut self, index: I) -> &mut I::Output {
         self.as_mut_slice().index_mut(index)
+    }
+}
+
+impl<H, T> PartialEq for HeaderVec<H, T>
+where
+    H: PartialEq,
+    T: PartialEq,
+{
+    fn eq(&self, other: &Self) -> bool {
+        self.header().head == other.header().head && self.as_slice() == other.as_slice()
+    }
+}
+
+impl<H, T> Clone for HeaderVec<H, T>
+where
+    H: Clone,
+    T: Clone,
+{
+    fn clone(&self) -> Self {
+        let mut new_vec = Self::with_capacity(self.len(), self.header().head.clone());
+        for e in self.as_slice() {
+            new_vec.push(e.clone());
+        }
+        new_vec
+    }
+}
+
+impl<H, T> Debug for HeaderVec<H, T>
+where
+    H: Debug,
+    T: Debug,
+{
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("HeaderVec")
+            .field("header", &self.header().head)
+            .field("vec", &self.as_slice())
+            .finish()
     }
 }
