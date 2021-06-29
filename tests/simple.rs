@@ -33,4 +33,12 @@ fn test_head_array() {
     v_orig.retain(|&c| !"aeiou".contains(c));
 
     assert_eq!(v_orig, v_no_vowels);
+    assert_eq!(*unsafe { v_orig.weak() }, v_no_vowels);
+
+    v_orig.retain(|&c| !"th".contains(c));
+
+    assert_eq!(
+        " qck brwn fx jmps vr  lzy dg",
+        v_orig.as_slice().iter().copied().collect::<String>()
+    );
 }

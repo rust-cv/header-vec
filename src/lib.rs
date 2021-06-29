@@ -6,7 +6,7 @@ use core::{
     cmp,
     fmt::Debug,
     marker::PhantomData,
-    mem,
+    mem::{self, ManuallyDrop},
     ops::{Deref, DerefMut, Index, IndexMut},
     ptr,
     slice::SliceIndex,
@@ -80,6 +80,34 @@ impl<H, T> HeaderVec<H, T> {
     #[inline(always)]
     pub fn as_mut_slice(&mut self) -> &mut [T] {
         unsafe { core::slice::from_raw_parts_mut(self.start_ptr_mut(), self.len()) }
+    }
+
+    /// Create a (dangerous) weak reference to the `HeaderVec`. This is useful to be able
+    /// to create, for instance, graph data structures. Edges can utilize `HeaderVecWeak`
+    /// so that they can traverse the graph immutably without needing to go to memory
+    /// twice to look up first the pointer to the underlying dynamic edge store (like a `Vec`).
+    /// The caveat is that the user is responsible for updating all `HeaderVecWeak` if the
+    /// `HeaderVec` needs to reallocate when [`HeaderVec::push`] is called. [`HeaderVec::push`]
+    /// returns true when it reallocates, and this indicates that the `HeaderVecWeak` need to be updated.
+    /// Therefore, this works best for implemented undirected graphs where it is easy to find
+    /// neighbor nodes. Directed graphs with an alternative method to traverse directed edges backwards
+    /// should also work with this technique.
+    ///
+    /// # Safety
+    ///
+    /// A `HeaderVecWeak` can only be used while its corresponding `HeaderVec` is still alive.
+    /// `HeaderVecWeak` also MUST be updated manually by the user when [`HeaderVec::push`] returns `true`,
+    /// since the pointer has now changed. As there is no reference counting mechanism, or
+    /// method by which all the weak references could be updated, it is up to the user to do this.
+    /// That is why this is unsafe. Make sure you update your `HeaderVecWeak` appropriately.
+    #[inline(always)]
+    pub unsafe fn weak(&self) -> HeaderVecWeak<H, T> {
+        HeaderVecWeak {
+            header_vec: ManuallyDrop::new(Self {
+                ptr: self.ptr,
+                _phantom: PhantomData,
+            }),
+        }
     }
 
     /// Adds an item to the end of the list.
@@ -298,5 +326,23 @@ where
             .field("header", &self.header().head)
             .field("vec", &self.as_slice())
             .finish()
+    }
+}
+
+pub struct HeaderVecWeak<H, T> {
+    header_vec: ManuallyDrop<HeaderVec<H, T>>,
+}
+
+impl<H, T> Deref for HeaderVecWeak<H, T> {
+    type Target = HeaderVec<H, T>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.header_vec
+    }
+}
+
+impl<H, T> Debug for HeaderVecWeak<H, T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("HeaderVecWeak").finish()
     }
 }
