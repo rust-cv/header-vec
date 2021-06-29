@@ -11,19 +11,20 @@ struct TestA {
 
 #[test]
 fn test_head_array() {
-    let mut head_array = HeaderVec::new(TestA { a: 4, b: !0 });
+    let mut v = HeaderVec::new(TestA { a: 4, b: !0 });
 
     let quote = "the quick brown fox jumps over the lazy dog";
 
     for a in quote.chars() {
-        head_array.push(a);
+        v.push(a);
     }
 
-    assert_eq!(TestA { a: 4, b: !0 }, *head_array);
-    assert_eq!(quote, head_array[..].iter().copied().collect::<String>());
-    head_array.retain(|&c| !"aeiou".contains(c));
+    assert_eq!(TestA { a: 4, b: !0 }, *v);
+    assert_eq!(4, v.a);
+    assert_eq!(quote, v[..].iter().copied().collect::<String>());
+    v.retain(|&c| !"aeiou".contains(c));
     assert_eq!(
         "th qck brwn fx jmps vr th lzy dg",
-        head_array[..].iter().copied().collect::<String>()
+        v[..].iter().copied().collect::<String>()
     );
 }
