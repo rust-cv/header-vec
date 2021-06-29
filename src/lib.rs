@@ -82,6 +82,13 @@ impl<H, T> HeaderVec<H, T> {
         unsafe { core::slice::from_raw_parts_mut(self.start_ptr_mut(), self.len()) }
     }
 
+    /// This is used to check if this is the `HeaderVec` that corresponds to the given pointer.
+    /// This is useful for updating weak references after [`HeaderVec::push`] returns the pointer.
+    #[inline(always)]
+    pub fn is(&self, ptr: *const ()) -> bool {
+        self.ptr as *const () == ptr
+    }
+
     /// Create a (dangerous) weak reference to the `HeaderVec`. This is useful to be able
     /// to create, for instance, graph data structures. Edges can utilize `HeaderVecWeak`
     /// so that they can traverse the graph immutably without needing to go to memory
@@ -114,13 +121,13 @@ impl<H, T> HeaderVec<H, T> {
     ///
     /// Returns `true` if the memory was moved to a new location.
     /// In this case, you are responsible for updating the weak nodes.
-    pub fn push(&mut self, item: T) -> bool {
+    pub fn push(&mut self, item: T) -> Option<*const ()> {
         let old_len = self.len();
         let new_len = old_len + 1;
         self.header_mut().len = new_len;
         let old_capacity = self.capacity();
         // If it isn't big enough.
-        let different = if new_len > old_capacity {
+        let previous_pointer = if new_len > old_capacity {
             // Compute the new capacity.
             let new_capacity = old_capacity * 2;
             // Set the new capacity.
@@ -138,18 +145,23 @@ impl<H, T> HeaderVec<H, T> {
                 alloc::alloc::handle_alloc_error(Self::layout(new_capacity));
             }
             // Check if the new pointer is different than the old one.
-            let different = ptr != self.ptr;
+            let previous_pointer = if ptr != self.ptr {
+                // Give the user the old pointer so they can update everything.
+                Some(self.ptr as *const ())
+            } else {
+                None
+            };
             // Assign the new pointer.
             self.ptr = ptr;
 
-            different
+            previous_pointer
         } else {
-            false
+            None
         };
         unsafe {
             core::ptr::write(self.start_ptr_mut().add(old_len), item);
         }
-        different
+        previous_pointer
     }
 
     /// Retains only the elements specified by the predicate.
