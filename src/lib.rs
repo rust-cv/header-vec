@@ -209,9 +209,7 @@ impl<H, T> HeaderVec<H, T> {
     fn offset() -> usize {
         // We need to first compute the first location we can start in align units.
         // Then we go from align units to offset units using mem::align_of::<T>() / mem::size_of::<T>().
-        (mem::size_of::<HeaderVecHeader<H>>() + mem::align_of::<T>() - 1) / mem::align_of::<T>()
-            * mem::align_of::<T>()
-            / mem::size_of::<T>()
+        (mem::size_of::<HeaderVecHeader<H>>() + mem::size_of::<T>() - 1) / mem::size_of::<T>()
     }
 
     /// Compute the number of elements (in units of T) to allocate for a given capacity.

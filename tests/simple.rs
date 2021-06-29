@@ -4,14 +4,16 @@ extern crate std;
 use header_vec::*;
 
 #[derive(Clone, Debug, PartialEq)]
+#[repr(align(128))]
 struct TestA {
     a: u32,
     b: usize,
+    c: usize,
 }
 
 #[test]
 fn test_head_array() {
-    let mut v_orig = HeaderVec::new(TestA { a: 4, b: !0 });
+    let mut v_orig = HeaderVec::new(TestA { a: 4, b: !0, c: 66 });
 
     let quote = "the quick brown fox jumps over the lazy dog";
 
@@ -19,7 +21,7 @@ fn test_head_array() {
         v_orig.push(a);
     }
 
-    assert_eq!(TestA { a: 4, b: !0 }, *v_orig);
+    assert_eq!(TestA { a: 4, b: !0, c: 66 }, *v_orig);
     assert_eq!(4, v_orig.a);
     assert_eq!(quote, v_orig[..].iter().copied().collect::<String>());
 
