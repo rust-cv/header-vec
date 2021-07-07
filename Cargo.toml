@@ -1,4 +1,12 @@
 [package]
 name = "header-vec"
 version = "0.1.0"
+authors = ["Geordon Worley <vadixidav@gmail.com>"]
 edition = "2018"
+description = "Vector with user-specified header, length, capacity, and array elements all stored on the heap together"
+documentation = "https://docs.rs/header-vec/"
+repository = "https://github.com/rust-cv/header-vec"
+keywords = ["header", "heap", "vec", "vector", "graph"]
+categories = ["no-std"]
+license = "MIT"
+readme = "README.md"
