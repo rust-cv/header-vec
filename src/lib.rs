@@ -31,18 +31,16 @@ struct HeaderVecHeader<H> {
 ///     a: usize,
 /// }
 ///
-/// fn main(){
-///     let h = OurHeaderType{ a: 2 };
-///     let mut hv = HeaderVec::<OurHeaderType, char>::new(h);
-///     hv.push('x');
-///     hv.push('z');
-///
-///     println!("HeaderVec itself consists solely of a pointer, it's only {} bytes big.", size_of_val(&hv));
-///     println!("All of the data, like our header, {:?}, and the length of the vector: {}, resides on the other side of the pointer.", &*hv, hv.len());
-/// }
+/// let h = OurHeaderType{ a: 2 };
+/// let mut hv = HeaderVec::<OurHeaderType, char>::new(h);
+/// hv.push('x');
+/// hv.push('z');
+/// 
+/// println!("HeaderVec itself consists solely of a pointer, it's only {} bytes big.", size_of_val(&hv));
+/// println!("All of the data, like our header, {:?}, and the length of the vector: {}, resides on the other side of the pointer.", &*hv, hv.len());
 /// ```
 ///
-/// ```
+/// ```ignore
 /// HeaderVec itself consists solely of a pointer, it's only 8 bytes big.
 /// All of the data, like our header, OurHeaderType { a: 2 }, and the length of the vector: 2, resides on the other side of the pointer.
 /// ```
