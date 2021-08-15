@@ -1,5 +1,4 @@
 #![no_std]
-#![feature(const_if_match)]
 
 extern crate alloc;
 
