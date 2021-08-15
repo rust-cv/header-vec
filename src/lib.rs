@@ -1,4 +1,5 @@
 #![no_std]
+#![feature(const_if_match)]
 
 extern crate alloc;
 
@@ -160,6 +161,37 @@ impl<H, T> HeaderVec<H, T> {
         self.ptr = weak.ptr;
     }
 
+    #[cold]
+    fn resize_insert(&mut self) -> Option<*const ()> {
+        let old_capacity = self.capacity();
+        let new_capacity = old_capacity * 2;
+        // Set the new capacity.
+        self.header_mut().capacity = new_capacity;
+        // Reallocate the pointer.
+        let ptr = unsafe {
+            alloc::alloc::realloc(
+                self.ptr as *mut u8,
+                Self::layout(old_capacity),
+                Self::elems_to_mem_bytes(new_capacity),
+            ) as *mut T
+        };
+        // Handle out-of-memory.
+        if ptr.is_null() {
+            alloc::alloc::handle_alloc_error(Self::layout(new_capacity));
+        }
+        // Check if the new pointer is different than the old one.
+        let previous_pointer = if ptr != self.ptr {
+            // Give the user the old pointer so they can update everything.
+            Some(self.ptr as *const ())
+        } else {
+            None
+        };
+        // Assign the new pointer.
+        self.ptr = ptr;
+
+        previous_pointer
+    }
+
     /// Adds an item to the end of the list.
     ///
     /// Returns `true` if the memory was moved to a new location.
@@ -171,33 +203,7 @@ impl<H, T> HeaderVec<H, T> {
         let old_capacity = self.capacity();
         // If it isn't big enough.
         let previous_pointer = if new_len > old_capacity {
-            // Compute the new capacity.
-            let new_capacity = old_capacity * 2;
-            // Set the new capacity.
-            self.header_mut().capacity = new_capacity;
-            // Reallocate the pointer.
-            let ptr = unsafe {
-                alloc::alloc::realloc(
-                    self.ptr as *mut u8,
-                    Self::layout(old_capacity),
-                    Self::elems_to_mem_bytes(new_capacity),
-                ) as *mut T
-            };
-            // Handle out-of-memory.
-            if ptr.is_null() {
-                alloc::alloc::handle_alloc_error(Self::layout(new_capacity));
-            }
-            // Check if the new pointer is different than the old one.
-            let previous_pointer = if ptr != self.ptr {
-                // Give the user the old pointer so they can update everything.
-                Some(self.ptr as *const ())
-            } else {
-                None
-            };
-            // Assign the new pointer.
-            self.ptr = ptr;
-
-            previous_pointer
+            self.resize_insert()
         } else {
             None
         };
