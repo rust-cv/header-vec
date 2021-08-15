@@ -1,6 +1,6 @@
 [package]
 name = "header-vec"
-version = "0.1.1"
+version = "0.1.2-alpha.0"
 authors = ["Geordon Worley <vadixidav@gmail.com>"]
 edition = "2018"
 description = "Vector with user-specified header, length, capacity, and array elements all stored on the heap together"
