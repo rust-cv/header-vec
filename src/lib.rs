@@ -18,6 +18,32 @@ struct HeaderVecHeader<H> {
     len: usize,
 }
 
+/// A vector with a header of your choosing, behind a thin pointer
+///
+/// # Example
+///
+/// ```
+/// use core::mem::size_of_val;
+/// use header_vec::HeaderVec;
+///
+/// #[derive(Debug)]
+/// struct OurHeaderType {
+///     a: usize,
+/// }
+///
+/// let h = OurHeaderType{ a: 2 };
+/// let mut hv = HeaderVec::<OurHeaderType, char>::new(h);
+/// hv.push('x');
+/// hv.push('z');
+///
+/// println!("HeaderVec itself consists solely of a pointer, it's only {} bytes big.", size_of_val(&hv));
+/// println!("All of the data, like our header, {:?}, and the length of the vector: {}, resides on the other side of the pointer.", &*hv, hv.len());
+/// ```
+///
+/// ```ignore
+/// HeaderVec itself consists solely of a pointer, it's only 8 bytes big.
+/// All of the data, like our header, OurHeaderType { a: 2 }, and the length of the vector: 2, resides on the other side of the pointer.
+/// ```
 pub struct HeaderVec<H, T> {
     ptr: *mut T,
     _phantom: PhantomData<H>,
@@ -134,6 +160,37 @@ impl<H, T> HeaderVec<H, T> {
         self.ptr = weak.ptr;
     }
 
+    #[cold]
+    fn resize_insert(&mut self) -> Option<*const ()> {
+        let old_capacity = self.capacity();
+        let new_capacity = old_capacity * 2;
+        // Set the new capacity.
+        self.header_mut().capacity = new_capacity;
+        // Reallocate the pointer.
+        let ptr = unsafe {
+            alloc::alloc::realloc(
+                self.ptr as *mut u8,
+                Self::layout(old_capacity),
+                Self::elems_to_mem_bytes(new_capacity),
+            ) as *mut T
+        };
+        // Handle out-of-memory.
+        if ptr.is_null() {
+            alloc::alloc::handle_alloc_error(Self::layout(new_capacity));
+        }
+        // Check if the new pointer is different than the old one.
+        let previous_pointer = if ptr != self.ptr {
+            // Give the user the old pointer so they can update everything.
+            Some(self.ptr as *const ())
+        } else {
+            None
+        };
+        // Assign the new pointer.
+        self.ptr = ptr;
+
+        previous_pointer
+    }
+
     /// Adds an item to the end of the list.
     ///
     /// Returns `true` if the memory was moved to a new location.
@@ -145,33 +202,7 @@ impl<H, T> HeaderVec<H, T> {
         let old_capacity = self.capacity();
         // If it isn't big enough.
         let previous_pointer = if new_len > old_capacity {
-            // Compute the new capacity.
-            let new_capacity = old_capacity * 2;
-            // Set the new capacity.
-            self.header_mut().capacity = new_capacity;
-            // Reallocate the pointer.
-            let ptr = unsafe {
-                alloc::alloc::realloc(
-                    self.ptr as *mut u8,
-                    Self::layout(old_capacity),
-                    Self::elems_to_mem_bytes(new_capacity),
-                ) as *mut T
-            };
-            // Handle out-of-memory.
-            if ptr.is_null() {
-                alloc::alloc::handle_alloc_error(Self::layout(new_capacity));
-            }
-            // Check if the new pointer is different than the old one.
-            let previous_pointer = if ptr != self.ptr {
-                // Give the user the old pointer so they can update everything.
-                Some(self.ptr as *const ())
-            } else {
-                None
-            };
-            // Assign the new pointer.
-            self.ptr = ptr;
-
-            previous_pointer
+            self.resize_insert()
         } else {
             None
         };
