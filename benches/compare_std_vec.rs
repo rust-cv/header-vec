@@ -21,8 +21,7 @@ struct TestAWithoutAlign {
     c: usize,
 }
 
-
-fn bench_with_header<H:Clone>(h:H, b: &mut Bencher){
+fn bench_with_header<H: Clone>(h: H, b: &mut Bencher) {
     b.iter(|| {
         let mut v = HeaderVec::<_, usize>::new(h.clone());
         const N_ELEMENTS: usize = 1000;
@@ -50,12 +49,12 @@ fn test_header_vec_with_three_word_create(b: &mut Bencher) {
 
 #[bench]
 fn test_header_vec_with_test_a_create(b: &mut Bencher) {
-    bench_with_header(TestA{ a:1, b:1, c:1 }, b);
+    bench_with_header(TestA { a: 1, b: 1, c: 1 }, b);
 }
 
 #[bench]
 fn test_header_vec_with_test_a_without_align_create(b: &mut Bencher) {
-    bench_with_header(TestAWithoutAlign{ a:1, b:1, c:1 }, b);
+    bench_with_header(TestAWithoutAlign { a: 1, b: 1, c: 1 }, b);
 }
 
 #[bench]
