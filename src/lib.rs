@@ -249,8 +249,8 @@ impl<H, T> HeaderVec<H, T> {
     /// Gives the offset in units of T (as if the pointer started at an array of T) that the slice actually starts at.
     #[inline(always)]
     fn offset() -> usize {
-        // We need to first compute the first location we can start in align units.
-        // Then we go from align units to offset units using mem::align_of::<T>() / mem::size_of::<T>().
+        // The first location, in units of size_of::<T>(), that is after the header
+        // It's the end of the header, rounded up to the nearest size_of::<T>()
         (mem::size_of::<HeaderVecHeader<H>>() + mem::size_of::<T>() - 1) / mem::size_of::<T>()
     }
 
