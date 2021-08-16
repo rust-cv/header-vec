@@ -51,6 +51,18 @@ fn test_header_vec_with_u64_create(b: &mut Bencher) {
 }
 
 #[bench]
+fn test_header_vec_with_three_word_create(b: &mut Bencher) {
+    b.iter(|| {
+        let mut v = HeaderVec::<(u64, u64, u64), usize>::new((2, 2, 2));
+        const N_ELEMENTS: usize = 1000;
+        for i in 0..N_ELEMENTS {
+            v.push(i);
+        }
+        v
+    });
+}
+
+#[bench]
 fn test_regular_vec_create(b: &mut Bencher) {
     b.iter(|| {
         let mut v = Vec::<usize>::new();

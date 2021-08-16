@@ -308,6 +308,7 @@ impl<H, T> Drop for HeaderVec<H, T> {
             for ix in 0..self.len() {
                 ptr::drop_in_place(self.start_ptr_mut().add(ix));
             }
+            alloc::alloc::dealloc(self.ptr as *mut u8, Self::layout(self.capacity()));
         }
     }
 }
