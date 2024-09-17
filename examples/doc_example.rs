@@ -3,6 +3,7 @@ use header_vec::HeaderVec;
 
 #[derive(Debug)]
 struct OurHeaderType {
+    #[allow(dead_code)]
     a: usize,
 }
 
@@ -13,8 +14,16 @@ fn main() {
     hv.push('z');
 
     println!(
-        "HeaderVec itself consists solely of a pointer, it's only {} bytes big.",
+        "[`HeaderVec`] itself consists solely of a pointer, it's only {} bytes big.",
         size_of_val(&hv)
     );
-    println!("All of the data, like our header, {:?}, and the length of the vector: {}, resides on the other side of the pointer.", &*hv, hv.len());
+    println!(
+        "All of the data, like our header `{:?}`, the length of the vector: `{}`,",
+        &*hv,
+        hv.len()
+    );
+    println!(
+        "and the contents of the vector `{:?}` resides on the other side of the pointer.",
+        hv.as_slice()
+    );
 }

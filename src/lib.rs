@@ -37,8 +37,9 @@ struct HeaderVecHeader<H> {
 /// hv.push('z');
 /// ```
 ///
-/// [`HeaderVec`] itself consists solely of a pointer. It is the same size as a pointer to T.
-/// All of the data, like our header, `OurHeaderType { a: 2 }`, the length of the vector: `2`, and the contents of the vector `['x', 'z']` reside on the other side of the pointer.
+/// [`HeaderVec`] itself consists solely of a pointer, it's only 8 bytes big.
+/// All of the data, like our header `OurHeaderType { a: 2 }`, the length of the vector: `2`,
+/// and the contents of the vector `['x', 'z']` resides on the other side of the pointer.
 pub struct HeaderVec<H, T> {
     ptr: *mut T,
     _phantom: PhantomData<H>,
