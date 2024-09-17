@@ -408,6 +408,32 @@ impl<H, T> HeaderVec<H, T> {
     fn end_ptr_atomic_mut(&self) -> *mut T {
         unsafe { self.ptr.add(Self::offset()).add(self.len_atomic_acquire()) }
     }
+
+    /// Atomically adds an item to the end of the list without reallocation.
+    ///
+    /// # Errors
+    ///
+    /// If the vector is full, the item is returned.
+    ///
+    /// # Safety
+    ///
+    /// There must be only one thread calling this method at any time. Synchronization has to
+    /// be provided by the user.
+    pub unsafe fn push_atomic(&self, item: T) -> Result<(), T> {
+        // relaxed is good enough here because this should be the only thread calling this method.
+        let len = self.len_atomic_relaxed();
+        if len < self.capacity() {
+            unsafe {
+                core::ptr::write(self.end_ptr_atomic_mut(), item);
+            };
+            let len_again = self.len_atomic_add_release(1);
+            // in debug builds we check for races, the chance to catch these are still pretty minimal
+            debug_assert_eq!(len_again, len, "len was updated by another thread");
+            Ok(())
+        } else {
+            Err(item)
+        }
+    }
 }
 
 impl<H, T> Drop for HeaderVec<H, T> {
