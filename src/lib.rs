@@ -10,13 +10,18 @@ use core::{
     ops::{Deref, DerefMut, Index, IndexMut},
     ptr,
     slice::SliceIndex,
-    sync::atomic::{AtomicUsize, Ordering},
 };
+
+#[cfg(feature = "atomic_append")]
+use core::sync::atomic::{AtomicUsize, Ordering};
 
 struct HeaderVecHeader<H> {
     head: H,
     capacity: usize,
+    #[cfg(feature = "atomic_append")]
     len: AtomicUsize,
+    #[cfg(not(feature = "atomic_append"))]
+    len: usize,
 }
 
 /// A vector with a header of your choosing behind a thin pointer
@@ -75,62 +80,73 @@ impl<H, T> HeaderVec<H, T> {
         unsafe { core::ptr::write(&mut header.head, head) };
         // These primitive types don't have drop implementations.
         header.capacity = capacity;
-        header.len = AtomicUsize::new(0);
+        header.len = 0usize.into();
 
         this
     }
 
-    /// Get the length of the vector from a mutable reference.
+    /// Get the length of the vector from a mutable reference.  When one has a `&mut
+    /// HeaderVec`, this is the method is always exact and can be slightly faster than the non
+    /// mutable `len()`.
+    #[cfg(feature = "atomic_append")]
     #[inline(always)]
-    pub fn len_from_mut(&mut self) -> usize {
+    pub fn len_exact(&mut self) -> usize {
         *self.header_mut().len.get_mut()
     }
-
-    /// Get the length of the vector with `Ordering::Acquire`. This ensures that the length is
-    /// properly synchronized after it got atomically updated.
+    #[cfg(not(feature = "atomic_append"))]
     #[inline(always)]
-    pub fn len_atomic_acquire(&self) -> usize {
-        self.header().len.load(Ordering::Acquire)
+    pub fn len_exact(&mut self) -> usize {
+        self.header_mut().len
     }
 
-    /// Get the length of the vector with `Ordering::Relaxed`. This is useful for when you don't
-    /// need exact synchronization semantic.
-    #[inline(always)]
-    pub fn len_atomic_relaxed(&self) -> usize {
-        self.header().len.load(Ordering::Relaxed)
-    }
-
-    /// Alias for [`HeaderVec::len_atomic_relaxed`]. This gives always a valid view of the
-    /// length when used in isolation.
+    /// This gives the length of the `HeaderVec`. This is the non synchronized variant may
+    /// produce racy results in case another thread atomically appended to
+    /// `&self`. Nevertheless it is always safe to use.
+    #[cfg(feature = "atomic_append")]
     #[inline(always)]
     pub fn len(&self) -> usize {
         self.len_atomic_relaxed()
     }
-
-    /// Add `n` to the length of the vector atomically with `Ordering::Release`.
-    ///
-    /// # Safety
-    ///
-    /// Before incrementing the length of the vector, you must ensure that new elements are
-    /// properly initialized.
+    #[cfg(not(feature = "atomic_append"))]
     #[inline(always)]
-    pub unsafe fn len_atomic_add_release(&self, n: usize) -> usize {
-        self.header().len.fetch_add(n, Ordering::Release)
+    pub fn len(&self) -> usize {
+        self.header().len
     }
 
+    /// This gives the length of the `HeaderVec`. With `atomic_append` enabled this gives a
+    /// exact result *after* another thread atomically appended to this `HeaderVec`. It still
+    /// requires synchronization because the length may become invalidated when another thread
+    /// atomically appends data to this `HeaderVec` while we still work with the result of
+    /// this method.
+    #[cfg(not(feature = "atomic_append"))]
     #[inline(always)]
-    pub fn is_empty_from_mut(&mut self) -> bool {
-        self.len_from_mut() == 0
+    pub fn len_strict(&self) -> usize {
+        self.header().len
+    }
+    #[cfg(feature = "atomic_append")]
+    #[inline(always)]
+    pub fn len_strict(&self) -> usize {
+        self.len_atomic_acquire()
     }
 
+    /// Check whenever a `HeaderVec` is empty. This uses a `&mut self` reference and is
+    /// always exact and may be slightly faster than the non mutable variant.
+    #[inline(always)]
+    pub fn is_empty_exact(&mut self) -> bool {
+        self.len_exact() == 0
+    }
+
+    /// Check whenever a `HeaderVec` is empty. This uses a `&self` reference and may be racy
+    /// when another thread atomically appended to this `HeaderVec`.
     #[inline(always)]
     pub fn is_empty(&self) -> bool {
-        self.len_atomic_relaxed() == 0
+        self.len() == 0
     }
 
+    /// Check whenever a `HeaderVec` is empty. see [`len_strict()`] about the exactness guarantees.
     #[inline(always)]
-    pub fn is_empty_atomic_acquire(&self) -> bool {
-        self.len_atomic_acquire() == 0
+    pub fn is_empty_strict(&self) -> bool {
+        self.len_strict() == 0
     }
 
     #[inline(always)]
@@ -138,19 +154,20 @@ impl<H, T> HeaderVec<H, T> {
         self.header().capacity
     }
 
+    /// This is the amount of elements that can be added to the `HeaderVec` without reallocation.
     #[inline(always)]
-    pub fn as_slice(&self) -> &[T] {
-        unsafe { core::slice::from_raw_parts(self.start_ptr(), self.len_atomic_relaxed()) }
+    pub fn spare_capacity(&self) -> usize {
+        self.header().capacity - self.len_strict()
     }
 
     #[inline(always)]
-    pub fn as_slice_atomic_acquire(&self) -> &[T] {
-        unsafe { core::slice::from_raw_parts(self.start_ptr(), self.len_atomic_acquire()) }
+    pub fn as_slice(&self) -> &[T] {
+        unsafe { core::slice::from_raw_parts(self.start_ptr(), self.len_strict()) }
     }
 
     #[inline(always)]
     pub fn as_mut_slice(&mut self) -> &mut [T] {
-        unsafe { core::slice::from_raw_parts_mut(self.start_ptr_mut(), self.len_from_mut()) }
+        unsafe { core::slice::from_raw_parts_mut(self.start_ptr_mut(), self.len_exact()) }
     }
 
     /// This is useful to check if two nodes are the same. Use it with [`HeaderVec::is`].
@@ -241,7 +258,7 @@ impl<H, T> HeaderVec<H, T> {
     /// Returns `true` if the memory was moved to a new location.
     /// In this case, you are responsible for updating the weak nodes.
     pub fn push(&mut self, item: T) -> Option<*const ()> {
-        let old_len = self.len_from_mut();
+        let old_len = self.len_exact();
         let new_len = old_len + 1;
         let old_capacity = self.capacity();
         // If it isn't big enough.
@@ -266,7 +283,7 @@ impl<H, T> HeaderVec<H, T> {
         // This keeps track of the length (and next position) of the contiguous retained elements
         // at the beginning of the vector.
         let mut head = 0;
-        let original_len = self.len_from_mut();
+        let original_len = self.len_exact();
         // Get the offset of the beginning of the slice.
         let start_ptr = self.start_ptr_mut();
         // Go through each index.
@@ -346,11 +363,58 @@ impl<H, T> HeaderVec<H, T> {
     }
 }
 
+#[cfg(feature = "atomic_append")]
+/// The atomic append API is only enabled when the `atomic_append` feature flag is set (which
+/// is the default).
+impl<H, T> HeaderVec<H, T> {
+    /// Get the length of the vector with `Ordering::Acquire`. This ensures that the length is
+    /// properly synchronized after it got atomically updated.
+    #[inline(always)]
+    fn len_atomic_acquire(&self) -> usize {
+        self.header().len.load(Ordering::Acquire)
+    }
+
+    /// Get the length of the vector with `Ordering::Relaxed`. This is useful for when you don't
+    /// need exact synchronization semantic.
+    #[inline(always)]
+    fn len_atomic_relaxed(&self) -> usize {
+        self.header().len.load(Ordering::Relaxed)
+    }
+
+    /// Add `n` to the length of the vector atomically with `Ordering::Release`.
+    ///
+    /// # Safety
+    ///
+    /// Before incrementing the length of the vector, you must ensure that new elements are
+    /// properly initialized.
+    #[inline(always)]
+    unsafe fn len_atomic_add_release(&self, n: usize) -> usize {
+        self.header().len.fetch_add(n, Ordering::Release)
+    }
+
+    #[inline(always)]
+    pub fn is_empty_atomic_acquire(&self) -> bool {
+        self.len_atomic_acquire() == 0
+    }
+
+    #[inline(always)]
+    pub fn as_slice_atomic_acquire(&self) -> &[T] {
+        unsafe { core::slice::from_raw_parts(self.start_ptr(), self.len_atomic_acquire()) }
+    }
+
+    /// Gets the pointer to the end of the slice. This returns a mutable pointer to
+    /// uninitialized memory behind the last element.
+    #[inline(always)]
+    fn end_ptr_atomic_mut(&self) -> *mut T {
+        unsafe { self.ptr.add(Self::offset()).add(self.len_atomic_acquire()) }
+    }
+}
+
 impl<H, T> Drop for HeaderVec<H, T> {
     fn drop(&mut self) {
         unsafe {
             ptr::drop_in_place(&mut self.header_mut().head);
-            for ix in 0..self.len_from_mut() {
+            for ix in 0..self.len_exact() {
                 ptr::drop_in_place(self.start_ptr_mut().add(ix));
             }
             alloc::alloc::dealloc(self.ptr as *mut u8, Self::layout(self.capacity()));
@@ -412,8 +476,7 @@ where
     T: Clone,
 {
     fn clone(&self) -> Self {
-        let mut new_vec =
-            Self::with_capacity(self.len_atomic_acquire(), self.header().head.clone());
+        let mut new_vec = Self::with_capacity(self.len_strict(), self.header().head.clone());
         for e in self.as_slice() {
             new_vec.push(e.clone());
         }

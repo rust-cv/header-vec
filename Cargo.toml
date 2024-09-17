@@ -10,3 +10,7 @@ keywords = ["header", "heap", "vec", "vector", "graph"]
 categories = ["no-std"]
 license = "MIT"
 readme = "README.md"
+
+[features]
+default = ["atomic_append"]
+atomic_append = []
