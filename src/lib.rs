@@ -198,7 +198,6 @@ impl<H, T> HeaderVec<H, T> {
     pub fn push(&mut self, item: T) -> Option<*const ()> {
         let old_len = self.len();
         let new_len = old_len + 1;
-        self.header_mut().len = new_len;
         let old_capacity = self.capacity();
         // If it isn't big enough.
         let previous_pointer = if new_len > old_capacity {
@@ -209,6 +208,7 @@ impl<H, T> HeaderVec<H, T> {
         unsafe {
             core::ptr::write(self.start_ptr_mut().add(old_len), item);
         }
+        self.header_mut().len = new_len;
         previous_pointer
     }
 
