@@ -18,7 +18,7 @@ struct HeaderVecHeader<H> {
     len: usize,
 }
 
-/// A vector with a header of your choosing, behind a thin pointer
+/// A vector with a header of your choosing behind a thin pointer
 ///
 /// # Example
 ///
@@ -35,15 +35,10 @@ struct HeaderVecHeader<H> {
 /// let mut hv = HeaderVec::<OurHeaderType, char>::new(h);
 /// hv.push('x');
 /// hv.push('z');
-///
-/// println!("HeaderVec itself consists solely of a pointer, it's only {} bytes big.", size_of_val(&hv));
-/// println!("All of the data, like our header, {:?}, and the length of the vector: {}, resides on the other side of the pointer.", &*hv, hv.len());
 /// ```
 ///
-/// ```ignore
-/// HeaderVec itself consists solely of a pointer, it's only 8 bytes big.
-/// All of the data, like our header, OurHeaderType { a: 2 }, and the length of the vector: 2, resides on the other side of the pointer.
-/// ```
+/// [`HeaderVec`] itself consists solely of a pointer. It is the same size as a pointer to T.
+/// All of the data, like our header, `OurHeaderType { a: 2 }`, the length of the vector: `2`, and the contents of the vector `['x', 'z']` reside on the other side of the pointer.
 pub struct HeaderVec<H, T> {
     ptr: *mut T,
     _phantom: PhantomData<H>,
