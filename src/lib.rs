@@ -10,12 +10,13 @@ use core::{
     ops::{Deref, DerefMut, Index, IndexMut},
     ptr,
     slice::SliceIndex,
+    sync::atomic::{AtomicUsize, Ordering},
 };
 
 struct HeaderVecHeader<H> {
     head: H,
     capacity: usize,
-    len: usize,
+    len: AtomicUsize,
 }
 
 /// A vector with a header of your choosing, behind a thin pointer
@@ -78,19 +79,62 @@ impl<H, T> HeaderVec<H, T> {
         unsafe { core::ptr::write(&mut header.head, head) };
         // These primitive types don't have drop implementations.
         header.capacity = capacity;
-        header.len = 0;
+        header.len = AtomicUsize::new(0);
 
         this
     }
 
+    /// Get the length of the vector from a mutable reference.
+    #[inline(always)]
+    pub fn len_from_mut(&mut self) -> usize {
+        *self.header_mut().len.get_mut()
+    }
+
+    /// Get the length of the vector with `Ordering::Acquire`. This ensures that the length is
+    /// properly synchronized after it got atomically updated.
+    #[inline(always)]
+    pub fn len_atomic_acquire(&self) -> usize {
+        self.header().len.load(Ordering::Acquire)
+    }
+
+    /// Get the length of the vector with `Ordering::Relaxed`. This is useful for when you don't
+    /// need exact synchronization semantic.
+    #[inline(always)]
+    pub fn len_atomic_relaxed(&self) -> usize {
+        self.header().len.load(Ordering::Relaxed)
+    }
+
+    /// Alias for [`HeaderVec::len_atomic_relaxed`]. This gives always a valid view of the
+    /// length when used in isolation.
     #[inline(always)]
     pub fn len(&self) -> usize {
-        self.header().len
+        self.len_atomic_relaxed()
+    }
+
+    /// Add `n` to the length of the vector atomically with `Ordering::Release`.
+    ///
+    /// # Safety
+    ///
+    /// Before incrementing the length of the vector, you must ensure that new elements are
+    /// properly initialized.
+    #[inline(always)]
+    pub unsafe fn len_atomic_add_release(&self, n: usize) -> usize {
+        self.header().len.fetch_add(n, Ordering::Release)
+    }
+
+    #[inline(always)]
+    pub fn is_empty_from_mut(&mut self) -> bool {
+        self.len_from_mut() == 0
     }
 
     #[inline(always)]
     pub fn is_empty(&self) -> bool {
-        self.len() == 0
+        self.len_atomic_relaxed() == 0
+    }
+
+    #[inline(always)]
+    pub fn is_empty_atomic_acquire(&self) -> bool {
+        self.len_atomic_acquire() == 0
     }
 
     #[inline(always)]
@@ -100,12 +144,17 @@ impl<H, T> HeaderVec<H, T> {
 
     #[inline(always)]
     pub fn as_slice(&self) -> &[T] {
-        unsafe { core::slice::from_raw_parts(self.start_ptr(), self.len()) }
+        unsafe { core::slice::from_raw_parts(self.start_ptr(), self.len_atomic_relaxed()) }
+    }
+
+    #[inline(always)]
+    pub fn as_slice_atomic_acquire(&self) -> &[T] {
+        unsafe { core::slice::from_raw_parts(self.start_ptr(), self.len_atomic_acquire()) }
     }
 
     #[inline(always)]
     pub fn as_mut_slice(&mut self) -> &mut [T] {
-        unsafe { core::slice::from_raw_parts_mut(self.start_ptr_mut(), self.len()) }
+        unsafe { core::slice::from_raw_parts_mut(self.start_ptr_mut(), self.len_from_mut()) }
     }
 
     /// This is useful to check if two nodes are the same. Use it with [`HeaderVec::is`].
@@ -196,7 +245,7 @@ impl<H, T> HeaderVec<H, T> {
     /// Returns `true` if the memory was moved to a new location.
     /// In this case, you are responsible for updating the weak nodes.
     pub fn push(&mut self, item: T) -> Option<*const ()> {
-        let old_len = self.len();
+        let old_len = self.len_from_mut();
         let new_len = old_len + 1;
         let old_capacity = self.capacity();
         // If it isn't big enough.
@@ -208,7 +257,7 @@ impl<H, T> HeaderVec<H, T> {
         unsafe {
             core::ptr::write(self.start_ptr_mut().add(old_len), item);
         }
-        self.header_mut().len = new_len;
+        self.header_mut().len = new_len.into();
         previous_pointer
     }
 
@@ -221,7 +270,7 @@ impl<H, T> HeaderVec<H, T> {
         // This keeps track of the length (and next position) of the contiguous retained elements
         // at the beginning of the vector.
         let mut head = 0;
-        let original_len = self.len();
+        let original_len = self.len_from_mut();
         // Get the offset of the beginning of the slice.
         let start_ptr = self.start_ptr_mut();
         // Go through each index.
@@ -243,7 +292,7 @@ impl<H, T> HeaderVec<H, T> {
             }
         }
         // The head now represents the new length of the vector.
-        self.header_mut().len = head;
+        self.header_mut().len = head.into();
     }
 
     /// Gives the offset in units of T (as if the pointer started at an array of T) that the slice actually starts at.
@@ -305,7 +354,7 @@ impl<H, T> Drop for HeaderVec<H, T> {
     fn drop(&mut self) {
         unsafe {
             ptr::drop_in_place(&mut self.header_mut().head);
-            for ix in 0..self.len() {
+            for ix in 0..self.len_from_mut() {
                 ptr::drop_in_place(self.start_ptr_mut().add(ix));
             }
             alloc::alloc::dealloc(self.ptr as *mut u8, Self::layout(self.capacity()));
@@ -367,7 +416,8 @@ where
     T: Clone,
 {
     fn clone(&self) -> Self {
-        let mut new_vec = Self::with_capacity(self.len(), self.header().head.clone());
+        let mut new_vec =
+            Self::with_capacity(self.len_atomic_acquire(), self.header().head.clone());
         for e in self.as_slice() {
             new_vec.push(e.clone());
         }
