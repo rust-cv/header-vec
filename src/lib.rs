@@ -3,9 +3,7 @@
 extern crate alloc;
 
 use core::{
-    cmp,
     fmt::Debug,
-    marker::PhantomData,
     mem::{self, ManuallyDrop},
     ops::{Deref, DerefMut, Index, IndexMut},
     ptr,
@@ -22,6 +20,12 @@ struct HeaderVecHeader<H> {
     len: AtomicUsize,
     #[cfg(not(feature = "atomic_append"))]
     len: usize,
+}
+
+// This union will be properly aligned and sized to store headers followed by T's.
+union AlignedHeader<H, T> {
+    _header: ManuallyDrop<HeaderVecHeader<H>>,
+    _data: ManuallyDrop<[T; 0]>,
 }
 
 /// A vector with a header of your choosing behind a thin pointer
@@ -47,8 +51,7 @@ struct HeaderVecHeader<H> {
 /// All of the data, like our header `OurHeaderType { a: 2 }`, the length of the vector: `2`,
 /// and the contents of the vector `['x', 'z']` resides on the other side of the pointer.
 pub struct HeaderVec<H, T> {
-    ptr: *mut T,
-    _phantom: PhantomData<H>,
+    ptr: *mut AlignedHeader<H, T>,
 }
 
 impl<H, T> HeaderVec<H, T> {
@@ -58,9 +61,9 @@ impl<H, T> HeaderVec<H, T> {
 
     pub fn with_capacity(capacity: usize, head: H) -> Self {
         assert!(capacity > 0, "HeaderVec capacity cannot be 0");
-        // Allocate the initial memory, which is unititialized.
+        // Allocate the initial memory, which is uninitialized.
         let layout = Self::layout(capacity);
-        let ptr = unsafe { alloc::alloc::alloc(layout) } as *mut T;
+        let ptr = unsafe { alloc::alloc::alloc(layout) } as *mut AlignedHeader<H, T>;
 
         // Handle out-of-memory.
         if ptr.is_null() {
@@ -68,10 +71,7 @@ impl<H, T> HeaderVec<H, T> {
         }
 
         // Create self.
-        let mut this = Self {
-            ptr,
-            _phantom: PhantomData,
-        };
+        let mut this = Self { ptr };
 
         // Set the header.
         let header = this.header_mut();
@@ -204,10 +204,7 @@ impl<H, T> HeaderVec<H, T> {
     #[inline(always)]
     pub unsafe fn weak(&self) -> HeaderVecWeak<H, T> {
         HeaderVecWeak {
-            header_vec: ManuallyDrop::new(Self {
-                ptr: self.ptr,
-                _phantom: PhantomData,
-            }),
+            header_vec: ManuallyDrop::new(Self { ptr: self.ptr }),
         }
     }
 
@@ -305,7 +302,7 @@ impl<H, T> HeaderVec<H, T> {
                 self.ptr as *mut u8,
                 Self::layout(old_capacity),
                 Self::elems_to_mem_bytes(new_capacity),
-            ) as *mut T
+            ) as *mut AlignedHeader<H, T>
         };
         // Handle out-of-memory.
         if ptr.is_null() {
@@ -377,10 +374,10 @@ impl<H, T> HeaderVec<H, T> {
 
     /// Gives the offset in units of T (as if the pointer started at an array of T) that the slice actually starts at.
     #[inline(always)]
-    fn offset() -> usize {
+    const fn offset() -> usize {
         // The first location, in units of size_of::<T>(), that is after the header
         // It's the end of the header, rounded up to the nearest size_of::<T>()
-        (mem::size_of::<HeaderVecHeader<H>>() + mem::size_of::<T>() - 1) / mem::size_of::<T>()
+        mem::size_of::<AlignedHeader<H, T>>() / mem::size_of::<T>()
     }
 
     /// Compute the number of elements (in units of T) to allocate for a given capacity.
@@ -400,7 +397,7 @@ impl<H, T> HeaderVec<H, T> {
     fn layout(capacity: usize) -> alloc::alloc::Layout {
         alloc::alloc::Layout::from_size_align(
             Self::elems_to_mem_bytes(capacity),
-            cmp::max(mem::align_of::<H>(), mem::align_of::<T>()),
+            mem::align_of::<AlignedHeader<H,T>>()
         )
         .expect("unable to produce memory layout with Hrc key type (is it a zero sized type? they are not permitted)")
     }
@@ -408,13 +405,13 @@ impl<H, T> HeaderVec<H, T> {
     /// Gets the pointer to the start of the slice.
     #[inline(always)]
     fn start_ptr(&self) -> *const T {
-        unsafe { self.ptr.add(Self::offset()) }
+        unsafe { (self.ptr as *const T).add(Self::offset()) }
     }
 
     /// Gets the pointer to the start of the slice.
     #[inline(always)]
     fn start_ptr_mut(&mut self) -> *mut T {
-        unsafe { self.ptr.add(Self::offset()) }
+        unsafe { (self.ptr as *mut T).add(Self::offset()) }
     }
 
     #[inline(always)]
@@ -473,7 +470,7 @@ impl<H, T> HeaderVec<H, T> {
     /// uninitialized memory behind the last element.
     #[inline(always)]
     fn end_ptr_atomic_mut(&self) -> *mut T {
-        unsafe { self.ptr.add(Self::offset()).add(self.len_atomic_acquire()) }
+        unsafe { self.start_ptr().add(self.len_atomic_acquire()) as *mut T }
     }
 
     /// Atomically adds an item to the end of the list without reallocation.

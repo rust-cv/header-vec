@@ -44,3 +44,12 @@ fn test_head_array() {
         v_orig.as_slice().iter().copied().collect::<String>()
     );
 }
+
+// This shown a miri error
+#[test]
+fn test_push() {
+    let mut hv = HeaderVec::with_capacity(10, ());
+
+    hv.push(123);
+    assert_eq!(hv[0], 123);
+}
