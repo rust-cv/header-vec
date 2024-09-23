@@ -227,7 +227,7 @@ impl<H, T> HeaderVec<H, T> {
     pub fn reserve(&mut self, additional: usize) -> Option<*const ()> {
         if self.spare_capacity() < additional {
             let len = self.len_exact();
-            unsafe { self.resize_cold(len + additional, false) }
+            unsafe { self.resize_cold(len.saturating_add(additional), false) }
         } else {
             None
         }
@@ -238,7 +238,7 @@ impl<H, T> HeaderVec<H, T> {
     pub fn reserve_exact(&mut self, additional: usize) -> Option<*const ()> {
         if self.spare_capacity() < additional {
             let len = self.len_exact();
-            unsafe { self.resize_cold(len + additional, true) }
+            unsafe { self.resize_cold(len.saturating_add(additional), true) }
         } else {
             None
         }
