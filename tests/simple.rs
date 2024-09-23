@@ -53,3 +53,12 @@ fn test_push() {
     hv.push(123);
     assert_eq!(hv[0], 123);
 }
+
+#[test]
+fn test_extend_from_slice() {
+    let mut hv = HeaderVec::new(());
+
+    hv.extend_from_slice(&[0, 1, 2]);
+    hv.extend_from_slice(&[3, 4, 5]);
+    assert_eq!(hv.as_slice(), &[0, 1, 2, 3, 4, 5]);
+}

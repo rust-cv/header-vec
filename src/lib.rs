@@ -414,6 +414,13 @@ impl<H, T> HeaderVec<H, T> {
         unsafe { (self.ptr as *mut T).add(Self::offset()) }
     }
 
+    /// Gets the pointer to the end of the slice. This returns a mutable pointer to
+    /// uninitialized memory behind the last element.
+    #[inline(always)]
+    fn end_ptr_mut(&mut self) -> *mut T {
+        unsafe { self.start_ptr_mut().add(self.len_exact()) }
+    }
+
     #[inline(always)]
     fn header(&self) -> &HeaderVecHeader<H> {
         // The beginning of the memory is always the header.
@@ -424,6 +431,28 @@ impl<H, T> HeaderVec<H, T> {
     fn header_mut(&mut self) -> &mut HeaderVecHeader<H> {
         // The beginning of the memory is always the header.
         unsafe { &mut *(self.ptr as *mut HeaderVecHeader<H>) }
+    }
+}
+
+impl<H, T: Clone> HeaderVec<H, T> {
+    /// Adds items from a slice to the end of the list.
+    ///
+    /// Returns `Some(*const ())` if the memory was moved to a new location.
+    /// In this case, you are responsible for updating the weak nodes.
+    pub fn extend_from_slice(&mut self, slice: &[T]) -> Option<*const ()> {
+        let previous_pointer = self.reserve(slice.len());
+
+        // copy data
+        let end_ptr = self.end_ptr_mut();
+        for (index, item) in slice.iter().enumerate() {
+            unsafe {
+                core::ptr::write(end_ptr.add(index), item.clone());
+            }
+        }
+        // correct the len
+        self.header_mut().len = (self.len_exact() + slice.len()).into();
+
+        previous_pointer
     }
 }
 
