@@ -222,12 +222,83 @@ impl<H, T> HeaderVec<H, T> {
         self.ptr = weak.ptr;
     }
 
+    /// Reserves capacity for at least `additional` more elements to be inserted in the given `HeaderVec`.
+    #[inline(always)]
+    pub fn reserve(&mut self, additional: usize) -> Option<*const ()> {
+        if self.spare_capacity() < additional {
+            let len = self.len_exact();
+            unsafe { self.resize_cold(len + additional, false) }
+        } else {
+            None
+        }
+    }
+
+    /// Reserves capacity for exactly `additional` more elements to be inserted in the given `HeaderVec`.
+    #[inline]
+    pub fn reserve_exact(&mut self, additional: usize) -> Option<*const ()> {
+        if self.spare_capacity() < additional {
+            let len = self.len_exact();
+            unsafe { self.resize_cold(len + additional, true) }
+        } else {
+            None
+        }
+    }
+
+    /// Shrinks the capacity of the `HeaderVec` to the `min_capacity` or `self.len()`, whichever is larger.
+    #[inline]
+    pub fn shrink_to(&mut self, min_capacity: usize) -> Option<*const ()> {
+        let requested_capacity = self.len_exact().max(min_capacity);
+        unsafe { self.resize_cold(requested_capacity, true) }
+    }
+
+    /// Resizes the vector hold exactly `self.len()` elements.
+    #[inline(always)]
+    pub fn shrink_to_fit(&mut self) -> Option<*const ()> {
+        let len = self.len_exact();
+        self.shrink_to(len)
+    }
+
+    /// Resize the vector to have at least room for `additional` more elements.
+    /// does exact resizing if `exact` is true.
+    ///
+    /// Returns `Some(*const ())` if the memory was moved to a new location.
+    ///
+    /// # Safety
+    ///
+    /// `requested_capacity` must be greater or equal than `self.len()`
     #[cold]
-    fn resize_insert(&mut self) -> Option<*const ()> {
+    unsafe fn resize_cold(&mut self, requested_capacity: usize, exact: bool) -> Option<*const ()> {
+        // For efficiency we do only a debug_assert here
+        debug_assert!(
+            self.len_exact() <= requested_capacity,
+            "requested capacity is less than current length"
+        );
         let old_capacity = self.capacity();
-        let new_capacity = old_capacity * 2;
-        // Set the new capacity.
-        self.header_mut().capacity = new_capacity;
+        debug_assert_ne!(old_capacity, 0, "capacity of 0 not yet supported");
+        debug_assert_ne!(requested_capacity, 0, "capacity of 0 not yet supported");
+
+        let new_capacity = if requested_capacity > old_capacity {
+            if exact {
+                // exact growing
+                requested_capacity
+            } else if requested_capacity <= old_capacity * 2 {
+                // doubling the capacity is sufficient
+                old_capacity * 2
+            } else {
+                // requested more than twice as much space, reserve the next multiple of
+                // old_capacity that is greater than the requested capacity. This gives headroom
+                // for new inserts while not doubling the memory requirement with bulk requests
+                (requested_capacity / old_capacity + 1).saturating_mul(old_capacity)
+            }
+        } else if exact {
+            // exact shrinking
+            requested_capacity
+        } else {
+            unimplemented!()
+            // or: (has no public API yet)
+            // // shrink to the next power of two or self.capacity, whichever is smaller
+            // requested_capacity.next_power_of_two().min(self.capacity())
+        };
         // Reallocate the pointer.
         let ptr = unsafe {
             alloc::alloc::realloc(
@@ -249,24 +320,20 @@ impl<H, T> HeaderVec<H, T> {
         };
         // Assign the new pointer.
         self.ptr = ptr;
+        // And set the new capacity.
+        self.header_mut().capacity = new_capacity;
 
         previous_pointer
     }
 
     /// Adds an item to the end of the list.
     ///
-    /// Returns `true` if the memory was moved to a new location.
+    /// Returns `Some(*const ())` if the memory was moved to a new location.
     /// In this case, you are responsible for updating the weak nodes.
     pub fn push(&mut self, item: T) -> Option<*const ()> {
         let old_len = self.len_exact();
         let new_len = old_len + 1;
-        let old_capacity = self.capacity();
-        // If it isn't big enough.
-        let previous_pointer = if new_len > old_capacity {
-            self.resize_insert()
-        } else {
-            None
-        };
+        let previous_pointer = self.reserve(1);
         unsafe {
             core::ptr::write(self.start_ptr_mut().add(old_len), item);
         }
