@@ -529,6 +529,41 @@ impl<H, T> HeaderVec<H, T> {
     }
 }
 
+#[cfg(feature = "atomic_append")]
+impl<H, T: Clone> HeaderVec<H, T> {
+    /// Atomically add items from a slice to the end of the list. without reallocation
+    ///
+    /// # Errors
+    ///
+    /// If the vector is full, the item is returned.
+    ///
+    /// # Safety
+    ///
+    /// There must be only one thread calling this method at any time. Synchronization has to
+    /// be provided by the user.
+    pub unsafe fn extend_from_slice_atomic<'a>(&self, slice: &'a [T]) -> Result<(), &'a [T]> {
+        #[cfg(debug_assertions)] // only for the race check later
+        let len = self.len_atomic_relaxed();
+        if self.spare_capacity() >= slice.len() {
+            // copy data
+            let end_ptr = self.end_ptr_atomic_mut();
+            for (index, item) in slice.iter().enumerate() {
+                unsafe {
+                    core::ptr::write(end_ptr.add(index), item.clone());
+                }
+            }
+            // correct the len
+            let len_again = self.len_atomic_add_release(slice.len());
+            // in debug builds we check for races, the chance to catch these are still pretty minimal
+            #[cfg(debug_assertions)]
+            debug_assert_eq!(len_again, len, "len was updated by another thread");
+            Ok(())
+        } else {
+            Err(slice)
+        }
+    }
+}
+
 impl<H, T> Drop for HeaderVec<H, T> {
     fn drop(&mut self) {
         unsafe {
