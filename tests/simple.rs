@@ -12,6 +12,31 @@ struct TestA {
 }
 
 #[test]
+fn test_sizeof() {
+    // assert that HeaderVec is really a single lean pointer
+    assert_eq!(
+        core::mem::size_of::<HeaderVec<(), ()>>(),
+        core::mem::size_of::<*mut ()>()
+    );
+    // and has space for niche optimization
+    assert_eq!(
+        core::mem::size_of::<HeaderVec<(), ()>>(),
+        core::mem::size_of::<Option<HeaderVec<(), ()>>>()
+    );
+}
+
+#[test]
+fn test_empty() {
+    let mut v_empty = HeaderVec::with_capacity(0, TestA { a: 4, b: !0, c: 66 });
+
+    assert_eq!(0, v_empty.len());
+    assert_eq!(0, v_empty.capacity());
+    assert_eq!(0, v_empty.as_slice().len());
+
+    v_empty.extend_from_slice("the quick brown fox jumps over the lazy dog".as_bytes());
+}
+
+#[test]
 fn test_head_array() {
     let mut v_orig = HeaderVec::new(TestA { a: 4, b: !0, c: 66 });
 
@@ -42,5 +67,36 @@ fn test_head_array() {
     assert_eq!(
         " qck brwn fx jmps vr  lzy dg",
         v_orig.as_slice().iter().copied().collect::<String>()
+    );
+}
+
+// This shown a miri error
+#[test]
+fn test_push() {
+    let mut hv = HeaderVec::with_capacity(10, ());
+
+    hv.push(123);
+    assert_eq!(hv[0], 123);
+}
+
+#[test]
+fn test_extend_from_slice() {
+    let mut hv = HeaderVec::new(());
+
+    hv.extend_from_slice([0, 1, 2]);
+    hv.extend_from_slice([3, 4, 5]);
+    assert_eq!(hv.as_slice(), [0, 1, 2, 3, 4, 5]);
+}
+
+#[test]
+fn test_from() {
+    assert_eq!(HeaderVec::<(), i32>::from(&[1, 2, 3]).as_slice(), [1, 2, 3]);
+}
+
+#[test]
+fn test_from_str() {
+    assert_eq!(
+        HeaderVec::<(), u8>::from("test").as_slice(),
+        "test".as_bytes()
     );
 }

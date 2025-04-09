@@ -10,3 +10,18 @@ keywords = ["header", "heap", "vec", "vector", "graph"]
 categories = ["no-std"]
 license = "MIT"
 readme = "README.md"
+
+[features]
+default = ["std", "atomic_append"]
+std = []
+atomic_append = []
+
+[dev-dependencies]
+xmacro = "0.4.0"
+
+# include debug info for flamgraph and other profiling tools
+[profile.bench]
+debug = true
+
+[dependencies]
+mutants = "0.0.3"
